@@ -12,6 +12,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 #include "num.hpp"
 #include "palette.hpp"
+#include "save.hpp"
 
 namespace ech {
 namespace {
@@ -40,8 +41,10 @@ const char* kTests[] = {"describe", "t test (unpaired)", "t test (paired)",
                         "Spearman rho", "Mann-Whitney U"};
 
 const char* kNotes[] = {
-    "Open several tables. Double-click a cell to edit it. Select rows and "
-    "press Exclude to leave them out of every plot, fit and test.",
+    "Open several tables at once -- each keeps its own plot, fit and "
+    "exclusions. Double-click a cell to edit it. Select rows and press "
+    "Exclude to leave them out of every plot, fit and test. Save the session "
+    "to keep all of it, edits included, in one file.",
     "Pick x, and Ctrl-click for more than one y. The table beside the plot is "
     "editable -- double-click a cell. The declaration is what gets drawn and "
     "can be edited by hand: y=A1,B1 is the same as Ctrl-clicking both.",
@@ -290,7 +293,7 @@ void section_plot(App& app, Doc& d) {
     ImGui::SameLine();
     dirty |= column_combo("x axis", d.table, d.x, true);
     ImGui::SameLine();
-    dirty |= column_combo("colour by", d.table, d.colour, false, true);
+    dirty |= column_combo("split by", d.table, d.split, false, true);
     ImGui::SameLine();
     caption("where");
     ImGui::SetNextItemWidth(200);
@@ -323,8 +326,9 @@ void section_plot(App& app, Doc& d) {
     ImGui::Checkbox("draw fitted curve", &d.draw_fit);
     ImGui::EndGroup();
     hint("Ctrl-click in the y list to plot several columns against the same x. "
-         "Each becomes its own series; colour= is ignored then, because the "
-         "series already ARE the columns.");
+         "Each becomes its own series; split= is ignored then, because the "
+         "series already ARE the columns. There is nothing to pick a colour "
+         "with: series are coloured from one ramp by how many there are.");
 
     if (dirty) {
         app.sync_spec_from_pickers();
@@ -338,7 +342,13 @@ void section_plot(App& app, Doc& d) {
     ImGui::SameLine();
     if (ImGui::Button("Plot") || entered) app.apply_spec_text();
     ImGui::SameLine();
-    if (ImGui::Button("Export .gp + data")) app.export_figure("echelle-figure");
+    if (ImGui::Button("Export .gp + data")) {
+        // Ask. It used to write `echelle-figure.*` into whatever directory the
+        // process happened to start in, which for a double-clicked exe is not
+        // a place anyone looks, and which overwrote the last export silently.
+        const std::string stem = ask_path(Ask::SaveFigure);
+        if (!stem.empty()) app.export_figure(stem);
+    }
     ImGui::Separator();
 
     // The table beside the plot, not on another tab: a number you have to
@@ -444,7 +454,55 @@ bool draw(App& app) {
             ImGui::PopID();
         }
         ImGui::Spacing();
-        if (ImGui::Button("Close table")) app.close_current();
+        if (ImGui::Button("Open table...")) {
+            const std::string p = ask_path(Ask::OpenTable);
+            if (!p.empty()) app.open(p);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close")) app.close_current();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+        ImGui::TextUnformatted("SESSION");
+        ImGui::PopStyleColor();
+        // A session is every open table AS EDITED, not a list of filenames --
+        // so it reopens into the analysis that was saved even if the CSVs it
+        // came from have since changed or moved.
+        if (ImGui::Button("Save")) {
+            std::string p = app.session_path.empty() ? ask_path(Ask::SaveSession)
+                                                     : app.session_path;
+            if (!p.empty()) {
+                std::string err;
+                if (save_session(app, p, err)) {
+                    app.session_path = p;
+                    app.status = "session saved to " + p;
+                } else {
+                    app.status = err;
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save as...")) {
+            const std::string p = ask_path(Ask::SaveSession);
+            if (!p.empty()) {
+                std::string err;
+                if (save_session(app, p, err)) {
+                    app.session_path = p;
+                    app.status = "session saved to " + p;
+                } else {
+                    app.status = err;
+                }
+            }
+        }
+        if (ImGui::Button("Open session...")) {
+            const std::string p = ask_path(Ask::OpenSession);
+            if (!p.empty()) {
+                std::string err;
+                if (load_session(app, p, err)) app.session_path = p;
+                else app.status = err;
+            }
+        }
 
         ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 96);
         ImGui::PushStyleColor(ImGuiCol_Text, kDim);

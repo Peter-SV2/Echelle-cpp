@@ -4,6 +4,7 @@
 #include <string>
 
 #include "palette.hpp"
+#include "save.hpp"
 
 namespace ech {
 namespace {
@@ -30,14 +31,14 @@ std::string esc(std::string_view s) {
     return o;
 }
 
+// Through write_atomic, like the session file. An export is a set of files
+// that only mean anything together -- a .gp naming three .dat files, a CSV of
+// the same numbers -- and a run that dies partway used to leave a new script
+// pointing at last time's data, which reruns and draws the wrong figure
+// without complaining.
 bool write_text(const std::string& path, const std::string& body,
                 std::string& err) {
-    std::FILE* fh = std::fopen(path.c_str(), "wb");
-    if (!fh) { err = "cannot write " + path; return false; }
-    const std::size_t n = std::fwrite(body.data(), 1, body.size(), fh);
-    std::fclose(fh);
-    if (n != body.size()) { err = "short write to " + path; return false; }
-    return true;
+    return write_atomic(path, body, err);
 }
 
 std::string fmt(double v) {

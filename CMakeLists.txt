@@ -43,7 +43,7 @@ endif()
 
 # --- the core: no window, no GPU, no platform ---------------------------------
 add_library(echelle_core STATIC
-  src/table.cpp src/fitstat.cpp src/spec.cpp src/gpexport.cpp src/ui_state.cpp)
+  src/table.cpp src/fitstat.cpp src/spec.cpp src/gpexport.cpp src/save.cpp src/ui_state.cpp)
 target_include_directories(echelle_core PUBLIC src)
 
 add_executable(selfcheck src/selfcheck.cpp)
@@ -92,7 +92,7 @@ if(WIN32)
 
   add_executable(Echelle WIN32 src/main.cpp src/ui.cpp
                  ${CMAKE_CURRENT_SOURCE_DIR}/echelle.rc)
-  target_link_libraries(Echelle PRIVATE echelle_core imgui d3d11 dxgi d3dcompiler)
+  target_link_libraries(Echelle PRIVATE echelle_core imgui d3d11 dxgi d3dcompiler comdlg32)
   set_target_properties(Echelle PROPERTIES OUTPUT_NAME "Echelle")
 
   if(MINGW)

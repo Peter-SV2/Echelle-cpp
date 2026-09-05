@@ -1,4 +1,4 @@
-// The declaration: `kind=scatter x=dose y=response colour=batch where=day==3`
+// The declaration: `kind=scatter x=dose y=response split=batch where=day==3`
 //
 // It is what the pickers write and it is also editable by hand, which is the
 // point. A picker can only offer combinations someone anticipated; the text
@@ -23,7 +23,13 @@ struct Spec {
     Kind kind = Kind::Scatter;
     std::string x;
     std::vector<std::string> y;   // several y against one x
-    std::string colour;
+    // The column to SPLIT into series on -- one series per distinct value.
+    // It was called `colour=` and the picker read "colour by", which described
+    // the visible effect rather than the operation and left people looking for
+    // a colour to choose. Colours are not chosen: they are sampled from one
+    // ramp by how many series exist (palette.hpp). `colour=` and `color=` are
+    // still accepted so older declarations and .gp headers keep working.
+    std::string split;
     std::string where;
     std::string title;
     int bins = 30;
@@ -60,7 +66,7 @@ struct Series {
     std::vector<double> xs, ys;
 };
 
-// A colour column with a distinct value per row is not a grouping, it is an
+// A split column with a distinct value per row is not a grouping, it is an
 // identifier -- and one legend entry per row covers the whole figure. Refused,
 // with the column named.
 inline constexpr std::size_t kMaxGroups = 12;

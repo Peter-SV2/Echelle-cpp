@@ -76,6 +76,18 @@ class Table {
     // Throws std::runtime_error on an unreadable or empty file.
     static Table load(const std::string& path, char delim = '\0');
 
+    // The same parse, over text already in memory. A session file carries its
+    // tables' CONTENT rather than their paths, so restoring one has to build a
+    // table without touching the disk -- and a path that still exists is not
+    // the same thing as a file that still holds what it held.
+    static Table from_text(std::string text, std::string path, std::string name,
+                           char delim = '\0');
+
+    // Every cell as it stands NOW, header first, in the delimiter it was read
+    // with. Edits included -- this is what a session writes, so what reopens
+    // is what was on screen and not what the file said before it was touched.
+    std::string to_csv() const;
+
     // Delimiter by COUNTING the header, not by extension: a .csv written in a
     // comma-decimal locale is semicolon-delimited and the suffix lies.
     static char sniff(std::string_view header);

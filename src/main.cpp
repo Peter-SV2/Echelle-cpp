@@ -34,6 +34,7 @@ ID3D11RenderTargetView* g_rtv = nullptr;
 bool g_occluded = false;
 UINT g_resize_w = 0, g_resize_h = 0;
 ech::App* g_app = nullptr;
+HWND g_hwnd = nullptr;
 
 void create_rtv() {
     ID3D11Texture2D* back = nullptr;
@@ -129,6 +130,54 @@ LRESULT WINAPI wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 }  // namespace
 
+namespace ech {
+
+// The file dialog, declared in ui.hpp. Windows ships one; a drawn-in-ImGui
+// file browser would be several hundred lines that behave subtly unlike every
+// other Open dialog on the machine -- no network places, no pinned folders, no
+// typing a path.
+std::string ask_path(Ask what) {
+    char buf[MAX_PATH] = {0};
+    OPENFILENAMEA ofn{};
+    ofn.lStructSize = sizeof ofn;
+    ofn.hwndOwner = g_hwnd;
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = sizeof buf;
+    const bool save = what == Ask::SaveSession || what == Ask::SaveFigure;
+    switch (what) {
+        case Ask::OpenTable:
+            ofn.lpstrFilter = "Data files\0*.csv;*.tsv;*.txt\0All files\0*.*\0";
+            ofn.lpstrTitle = "Open a table";
+            break;
+        case Ask::OpenSession:
+        case Ask::SaveSession:
+            ofn.lpstrFilter = "Echelle session\0*.ech\0All files\0*.*\0";
+            ofn.lpstrDefExt = "ech";
+            ofn.lpstrTitle = save ? "Save the session" : "Open a session";
+            break;
+        case Ask::SaveFigure:
+            ofn.lpstrFilter = "gnuplot script\0*.gp\0All files\0*.*\0";
+            ofn.lpstrDefExt = "gp";
+            ofn.lpstrTitle = "Export the figure";
+            break;
+    }
+    // NOCHANGEDIR: without it the dialog moves the PROCESS working directory,
+    // so the next relative path written lands somewhere the user never chose.
+    ofn.Flags = OFN_NOCHANGEDIR | (save ? OFN_OVERWRITEPROMPT
+                                        : OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST);
+    if (!(save ? GetSaveFileNameA(&ofn) : GetOpenFileNameA(&ofn))) return {};
+
+    std::string p(buf);
+    // The figure export is given a STEM -- it appends .gp, .dat and .csv
+    // itself -- so the extension the dialog helpfully added comes back off.
+    if (what == Ask::SaveFigure && p.size() > 3 &&
+        p.compare(p.size() - 3, 3, ".gp") == 0)
+        p.resize(p.size() - 3);
+    return p;
+}
+
+}  // namespace ech
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdline, int) {
     WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, wndproc, 0, 0, inst,
                    LoadIconW(inst, L"IDI_ICON1"), nullptr, nullptr, nullptr,
@@ -137,6 +186,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdline, int) {
     HWND hwnd = CreateWindowW(wc.lpszClassName, L"Echelle",
                               WS_OVERLAPPEDWINDOW, 100, 100, 1600, 900, nullptr,
                               nullptr, wc.hInstance, nullptr);
+    g_hwnd = hwnd;
     if (!create_device(hwnd)) {
         destroy_device();
         UnregisterClassW(wc.lpszClassName, wc.hInstance);

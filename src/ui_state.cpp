@@ -80,7 +80,7 @@ void App::sync_spec_from_pickers() {
     const auto& cols = d->table.cols();
     if (d->x >= 0) s.x = cols[static_cast<std::size_t>(d->x)].name;
     for (int y : d->ys) s.y.push_back(cols[static_cast<std::size_t>(y)].name);
-    if (d->colour >= 0) s.colour = cols[static_cast<std::size_t>(d->colour)].name;
+    if (d->split >= 0) s.split = cols[static_cast<std::size_t>(d->split)].name;
     s.where = d->where;
     s.logx = d->logx;
     s.logy = d->logy;
@@ -106,7 +106,7 @@ bool App::apply_spec_text() {
         const int i = d->table.index_of(y);
         if (i >= 0) d->ys.push_back(i);
     }
-    d->colour = s.colour.empty() ? -1 : d->table.index_of(s.colour);
+    d->split = s.split.empty() ? -1 : d->table.index_of(s.split);
     d->where = s.where;
     d->logx = s.logx;
     d->logy = s.logy;

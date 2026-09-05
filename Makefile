@@ -11,7 +11,7 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
 LDFLAGS  ?=
 
-SRC  := src/table.cpp src/fitstat.cpp src/spec.cpp src/gpexport.cpp src/ui_state.cpp
+SRC  := src/table.cpp src/fitstat.cpp src/spec.cpp src/gpexport.cpp src/save.cpp src/ui_state.cpp
 CHECK:= src/selfcheck.cpp
 BIN  := build/selfcheck
 BENCH:= build/bench

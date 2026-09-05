@@ -106,11 +106,29 @@ std::string basename_of(const std::string& p) {
 }  // namespace
 
 Table Table::load(const std::string& path, char delim) {
+    std::string text = read_file(path);
+    if (text.empty()) throw std::runtime_error("empty file: " + path);
+    return from_text(std::move(text), path, basename_of(path), delim);
+}
+
+Table Table::from_text(std::string text, std::string path, std::string name,
+                       char delim) {
     Table t;
-    t.path_ = path;
-    t.name_ = basename_of(path);
-    t.buf_ = read_file(path);
-    if (t.buf_.empty()) throw std::runtime_error("empty file: " + path);
+    t.path_ = std::move(path);
+    t.name_ = std::move(name);
+    t.buf_ = std::move(text);
+    if (t.buf_.empty()) throw std::runtime_error("empty table: " + t.name_);
+
+    // Drop a leading UTF-8 byte order mark. Excel writes one on every CSV it
+    // exports, and so does PowerShell's -Encoding utf8, so this is the common
+    // case rather than an exotic one. Left in place it becomes part of the
+    // FIRST COLUMN'S NAME -- the header reads "?dose", and `x=dose` then finds
+    // no such column while the grid appears to show one. Stripped here, before
+    // anything takes an offset into the buffer.
+    if (t.buf_.size() >= 3 && static_cast<unsigned char>(t.buf_[0]) == 0xEF &&
+        static_cast<unsigned char>(t.buf_[1]) == 0xBB &&
+        static_cast<unsigned char>(t.buf_[2]) == 0xBF)
+        t.buf_.erase(0, 3);
 
     std::string_view all(t.buf_);
     std::size_t pos = all.find('\n');
@@ -121,7 +139,7 @@ Table Table::load(const std::string& path, char delim) {
 
     std::vector<std::string_view> fields;
     split(header, t.delim_, fields);
-    if (fields.empty()) throw std::runtime_error("no columns in " + path);
+    if (fields.empty()) throw std::runtime_error("no columns in " + t.name_);
     t.cols_.resize(fields.size());
     for (std::size_t c = 0; c < fields.size(); ++c)
         t.cols_[c].name = std::string(trim(fields[c]));
@@ -201,6 +219,43 @@ void Table::clear_exclusions() {
 
 std::string Table::cell_text(std::size_t row, std::size_t col) const {
     return std::string(raw_at(row, col));
+}
+
+std::string Table::to_csv() const {
+    // Quote only what would otherwise re-read as something else. A cell
+    // holding the delimiter, a quote or a newline has to be quoted, or the
+    // row silently gains a column when this is read back -- the same shifted
+    // -by-one corruption the quoted-field handling on the way IN exists to
+    // stop, arriving instead on the way out.
+    auto field = [this](std::string_view v) {
+        const bool needs = v.find(delim_) != std::string_view::npos ||
+                           v.find('\"') != std::string_view::npos ||
+                           v.find('\n') != std::string_view::npos ||
+                           v.find('\r') != std::string_view::npos;
+        if (!needs) return std::string(v);
+        std::string o = "\"";
+        for (char c : v) {
+            if (c == '\"') o += '\"';
+            o += c;
+        }
+        o += '\"';
+        return o;
+    };
+    std::string o;
+    o.reserve(buf_.size() + nrows_ * 2);
+    for (std::size_t c = 0; c < cols_.size(); ++c) {
+        if (c) o += delim_;
+        o += field(cols_[c].name);
+    }
+    o += '\n';
+    for (std::size_t r = 0; r < nrows_; ++r) {
+        for (std::size_t c = 0; c < cols_.size(); ++c) {
+            if (c) o += delim_;
+            o += field(raw_at(r, c));
+        }
+        o += '\n';
+    }
+    return o;
 }
 
 void Table::set_cell(std::size_t row, std::size_t col, std::string_view text) {

@@ -38,7 +38,7 @@ struct Doc {
     // Picker state, as indices into the table's own columns. Indices, not
     // names: a name that no longer exists silently plots the previous table's
     // column, which is the bug `_switch` kept re-introducing.
-    int x = -1, colour = -1;
+    int x = -1, split = -1;
     std::vector<int> ys;
     int fit_x = -1, fit_y = -1;
     Model fit_model = Model::Linear;
@@ -80,12 +80,23 @@ struct App {
     void sync_spec_from_pickers();
     bool apply_spec_text();
 
+    // Where this session was last written, so Save does not ask again. Empty
+    // until it has been saved once.
+    std::string session_path;
+
     void run_fit();
     void run_interp();
     void run_test();
     void suggest_outliers(std::vector<std::size_t>& select_rows);
     bool export_figure(const std::string& stem);
 };
+
+// Asking the user for a path is the one thing the panel cannot do for itself:
+// a file dialog belongs to the platform. Declared here and DEFINED BY THE HOST
+// (main.cpp), so ui.cpp stays free of windows.h and the core stays free of
+// both. Returns an empty string when the user cancels.
+enum class Ask { OpenTable, OpenSession, SaveSession, SaveFigure };
+std::string ask_path(Ask what);
 
 // The one place a frame is drawn. Returns false when the user has asked to
 // close the window.

@@ -10,7 +10,7 @@
 namespace ech {
 namespace {
 
-constexpr std::string_view kKeys[] = {"kind", "x", "y", "colour", "color",
+constexpr std::string_view kKeys[] = {"kind", "x", "y", "split", "colour", "color",
                                       "where", "bins", "limit", "title",
                                       "logx", "logy"};
 // Longest first, so `<=` is not read as `<` followed by a stray `=`.
@@ -71,7 +71,7 @@ bool parse_spec(std::string_view text, Spec& out, std::string& err) {
         } else if (k == "x") out.x = v;
         else if (k == "y") {
             for (auto p : split_on(v, ',')) out.y.emplace_back(p);
-        } else if (k == "colour" || k == "color") out.colour = v;
+        } else if (k == "split" || k == "colour" || k == "color") out.split = v;
         else if (k == "where") out.where = v;
         else if (k == "title") out.title = v;
         else if (k == "bins") out.bins = std::max(2, static_cast<int>(to_num(v)));
@@ -99,7 +99,7 @@ std::string spec_text(const Spec& s) {
             o += s.y[i];
         }
     }
-    if (!s.colour.empty()) o += " colour=" + s.colour;
+    if (!s.split.empty()) o += " split=" + s.split;
     if (!s.where.empty()) o += " where=" + s.where;
     if (!s.title.empty()) o += " title=" + s.title;
     if (s.logx) o += " logx=1";
@@ -185,9 +185,9 @@ bool build_series(const Table& t, const Spec& s, std::vector<Series>& out,
     for (const auto& y : s.y)
         if (t.index_of(y) < 0) { err = "no column '" + y + "' (y=)"; return false; }
     int cc = -1;
-    if (!s.colour.empty()) {
-        cc = t.index_of(s.colour);
-        if (cc < 0) { err = "no column '" + s.colour + "' (colour=)"; return false; }
+    if (!s.split.empty()) {
+        cc = t.index_of(s.split);
+        if (cc < 0) { err = "no column '" + s.split + "' (split=)"; return false; }
     }
     Filter f;
     if (!make_filter(t, s.where, f, err)) return false;
@@ -223,8 +223,8 @@ bool build_series(const Table& t, const Spec& s, std::vector<Series>& out,
         return true;
     }
 
-    // Several y columns: the series ARE the columns, and colouring by a third
-    // field on top of that produces a legend nobody can read, so colour= is
+    // Several y columns: the series ARE the columns, and splitting on a third
+    // field on top of that produces a legend nobody can read, so split= is
     // ignored here rather than combined.
     if (s.y.size() > 1) {
         for (const auto& yname : s.y) {
@@ -274,7 +274,7 @@ bool build_series(const Table& t, const Spec& s, std::vector<Series>& out,
                                 std::find(more.begin(), more.end(), g[k]) == more.end())
                                 more.push_back(g[k]);
                         distinct += more.size();
-                        err = "colour=" + s.colour + " has " +
+                        err = "split=" + s.split + " has " +
                               std::to_string(distinct) +
                               " distinct values -- that is an identifier, not a "
                               "grouping (at most " + std::to_string(kMaxGroups) + ")";

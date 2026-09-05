@@ -19,6 +19,7 @@
 #include "gpexport.hpp"
 #include "num.hpp"
 #include "palette.hpp"
+#include "save.hpp"
 #include "spec.hpp"
 #include "table.hpp"
 #include "ui.hpp"
@@ -295,14 +296,16 @@ void check_table() {
 void check_spec() {
     Spec s;
     std::string err;
-    check(parse_spec("kind=scatter x=pka y=ddg colour=band where=n>3", s, err),
+    check(parse_spec("kind=scatter x=pka y=ddg split=band where=n>3", s, err),
           "a well-formed declaration parses");
-    check(s.kind == Kind::Scatter && s.x == "pka" && s.colour == "band",
+    check(s.kind == Kind::Scatter && s.x == "pka" && s.split == "band",
           "fields land where they belong");
     check(s.y.size() == 1 && s.y[0] == "ddg", "one y");
     check(parse_spec("x=a y=b,c", s, err) && s.y.size() == 2, "several y");
-    check(parse_spec("color=band", s, err) && s.colour == "band",
-          "color= must alias colour=");
+    check(parse_spec("color=band", s, err) && s.split == "band",
+          "color= must alias split=");
+    check(parse_spec("split=band", s, err) && s.split == "band",
+          "split= is the name it is written under");
     // Unknown keys REFUSED, not ignored.
     check(!parse_spec("nosuch=1", s, err), "an unknown key is refused");
     check(!parse_spec("kind=pie x=a", s, err), "an unknown kind is refused");
@@ -347,9 +350,9 @@ void check_spec() {
           "an unnamed series takes the y column's name, never \"\"");
 
     Spec grouped;
-    parse_spec("kind=scatter x=pka y=ddg colour=band", grouped, err);
+    parse_spec("kind=scatter x=pka y=ddg split=band", grouped, err);
     check(build_series(t, grouped, out, err) && out.size() == 2,
-          "colour= splits into series");
+          "split= splits into series");
     check(out[0].label == "persistent" && out[1].label == "switch",
           "series are ordered by label");
 
@@ -369,7 +372,7 @@ void check_spec() {
     write(w, body);
     Table wt = Table::load(w.string());
     Spec idspec;
-    parse_spec("x=x y=y colour=id", idspec, err);
+    parse_spec("x=x y=y split=id", idspec, err);
     check(!build_series(wt, idspec, out, err), "an id column is refused");
     check(err.find("identifier") != std::string::npos &&
               err.find("40") != std::string::npos,
@@ -507,10 +510,15 @@ void check_app() {
           "the declaration reflects the pickers: " + app.spec_text_buf);
 
     // HAND EDITS WIN. The declaration is what gets drawn.
+    // Written with the OLD key on purpose: `colour=` became `split=` because
+    // it never chose a colour, and declarations already written down have to
+    // keep working.
     app.spec_text_buf = "kind=line x=dose y=response colour=batch";
     check(app.apply_spec_text(), "a hand-edited declaration applies");
-    check(doc->colour == 2, "and pushes back into the pickers");
-    check(doc->series.size() == 3, "colour=batch made three series");
+    check(doc->split == 2, "and pushes back into the pickers");
+    check(doc->series.size() == 3, "colour= still splits into three series");
+    check(spec_text(doc->spec).find("split=batch") != std::string::npos,
+          "but it is written back out under its real name");
     check(doc->series[0].xs[0] <= doc->series[0].xs[1], "kind=line sorted by x");
 
     // A bad declaration is reported, and must not half-apply.
@@ -578,6 +586,127 @@ void check_app() {
     check(app.doc() == nullptr, "closing the last table leaves none");
 }
 
+
+// --- the session file ------------------------------------------------------
+// A session is the one artefact that has to survive being written badly. The
+// checks below are less about the happy path than about the two ways a file
+// stops being trustworthy: interrupted on the way out, damaged after the fact.
+
+void check_session() {
+    auto d = tmpdir();
+
+    // A BOM IS NOT PART OF THE FIRST COLUMN'S NAME. Excel puts one on every
+    // CSV it exports; left in, the header reads "?dose" and every declaration
+    // naming that column fails to find it while the grid looks correct.
+    {
+        const auto bom = d / "bom.csv";
+        // Split after the BOM on purpose: a hex escape eats every hex digit
+        // that follows it, so writing the BOM and the word dose in ONE
+        // literal makes the d part of the escape and does not compile.
+        write(bom, std::string("\xEF\xBB\xBF"
+                               "dose,response\n1,2\n3,4\n"));
+        Table t = Table::load(bom.string());
+        check(t.cols()[0].name == "dose",
+              "a UTF-8 BOM is stripped, not named: got '" + t.cols()[0].name + "'");
+        check(t.index_of("dose") == 0, "so the column can be found by name");
+    }
+
+    const auto a = d / "a.csv", b = d / "b.csv";
+    write(a, "dose,response,batch\n"
+             "1,2.0,x\n2,4.1,y\n3,6.0,x\n4,7.9,y\n5,10.1,x\n");
+    write(b, "t,signal\n0,1\n1,3\n2,5\n3,7\n");
+
+    App app;
+    check(app.open(a.string()), "open the first table");
+    check(app.open(b.string()), "open the second");
+    // SEVERAL TABLES AT ONCE. The rail switches between analyses, so each one
+    // keeps its own plot, fit and exclusions rather than sharing one set.
+    check(app.docs.size() == 2, "two tables are open at the same time");
+    check(app.cur == 1, "and the newest is selected");
+    app.select(0);
+    check(app.doc()->table.name() == "a.csv", "the rail switches between them");
+
+    // Something to restore: an edit, an exclusion, a selection and a spec.
+    Doc* d0 = app.doc();
+    d0->table.set_cell(0, 1, "99.5");
+    d0->table.set_excluded(2, true);
+    d0->row_selected.insert(3);
+    app.spec_text_buf = "kind=line x=dose y=response split=batch";
+    check(app.apply_spec_text(), "a split= declaration applies");
+    check(d0->split == 2, "split= is the grouping column");
+    d0->fit_model = Model::Linear;
+    app.run_fit();
+    check(d0->has_fit, "and a fit has been run");
+
+    const auto sess = d / "work.ech";
+    std::string err;
+    check(save_session(app, sess.string(), err), "the session saves: " + err);
+    check(std::filesystem::exists(sess), "and the file is there");
+    check(!std::filesystem::exists(d / "work.ech.part"),
+          "with no leftover temporary beside it");
+
+    // THE SOURCE FILES GO AWAY. A session that stored paths would reopen into
+    // whatever those paths hold today -- or nothing. This one carries the data.
+    std::filesystem::remove(a);
+    std::filesystem::remove(b);
+
+    App back;
+    check(load_session(back, sess.string(), err), "it loads again: " + err);
+    check(back.docs.size() == 2, "both tables come back");
+    check(back.cur == 0, "with the same one selected");
+    Doc* r0 = back.doc();
+    check(r0->table.name() == "a.csv", "named as they were");
+    check(r0->table.cell_text(0, 1) == "99.5", "the EDIT survived, not the file");
+    check(r0->table.excluded(2), "the exclusion survived");
+    check(r0->table.n_excluded() == 1, "and is counted once");
+    check(r0->row_selected.count(3) == 1, "the selection survived");
+    check(r0->split == 2, "the pickers survived");
+    check(r0->spec.kind == Kind::Line, "so did the kind");
+    check(r0->series.size() == 2, "and the plot rebuilt from them");
+    check(r0->has_fit, "the fit was re-run rather than stored stale");
+
+    // --- damage ------------------------------------------------------------
+    // A session that loads PARTLY is worse than one that refuses: the analysis
+    // looks complete and is not.
+    const std::string good = slurp(sess);
+
+    std::string bit = good;
+    bit[bit.size() / 2] = static_cast<char>(bit[bit.size() / 2] ^ 0x20);
+    const auto damaged = d / "damaged.ech";
+    write(damaged, bit);
+    App survivor;
+    write(d / "c.csv", "u,v\n1,2\n3,4\n");
+    check(survivor.open((d / "c.csv").string()), "an app with a table open");
+    check(!load_session(survivor, damaged.string(), err),
+          "a flipped bit is refused");
+    check(err.find("checksum") != std::string::npos,
+          "and says why: " + err);
+    check(survivor.docs.size() == 1 && survivor.doc()->table.name() == "c.csv",
+          "and the app it was loaded into is UNTOUCHED");
+
+    const auto cut = d / "cut.ech";
+    write(cut, good.substr(0, good.size() - 40));
+    check(!load_session(survivor, cut.string(), err), "a truncated file is refused");
+    check(err.find("short") != std::string::npos,
+          "and says how much is missing: " + err);
+
+    const auto junk = d / "junk.ech";
+    write(junk, "this is not a session at all\n");
+    check(!load_session(survivor, junk.string(), err), "so is an unrelated file");
+
+    // --- the atomic write itself -------------------------------------------
+    const auto target = d / "atomic.txt";
+    check(write_atomic(target.string(), "first", err), "write_atomic writes");
+    check(slurp(target) == "first", "what it was given");
+    check(write_atomic(target.string(), "second and longer", err),
+          "and replaces an existing file");
+    check(slurp(target) == "second and longer", "wholly, not partly");
+    check(!std::filesystem::exists(target.string() + ".part"),
+          "leaving no .part behind");
+    check(checksum("abc") != checksum("abd"), "the checksum notices one bit");
+    check(checksum("") == checksum(""), "and is stable");
+}
+
 }  // namespace
 
 int main() {
@@ -592,6 +721,7 @@ int main() {
     check_export();
     check_palette();
     check_app();
+    check_session();
     if (failures) {
         std::printf("\n%d check(s) FAILED\n", failures);
         return 1;
