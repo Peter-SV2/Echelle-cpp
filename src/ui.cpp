@@ -11,6 +11,7 @@
 #include "implot.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "num.hpp"
+#include "palette.hpp"
 
 namespace ech {
 namespace {
@@ -22,10 +23,12 @@ constexpr ImVec4 kCrimson{0.659f, 0.196f, 0.275f, 1.0f};   // #a83246
 constexpr ImVec4 kDim{0.427f, 0.427f, 0.427f, 1.0f};
 constexpr ImVec4 kInk{0.102f, 0.102f, 0.102f, 1.0f};
 
-const ImVec4 kSeries[] = {
-    kTeal, {0.247f, 0.427f, 0.549f, 1.0f}, kCrimson,
-    {0.604f, 0.392f, 0.075f, 1.0f}, kDim,
-};
+// Sampled from the shared ramp, so n series get n distinct colours and the
+// figure on screen matches the one the export writes.
+ImVec4 series_col(std::size_t i, std::size_t n) {
+    const Rgb c = series_colour(i, n);
+    return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1.0f);
+}
 
 // The cell being edited, if any. Immediate mode has no widget to own this, so
 // it is one place in the frame's own state.
@@ -39,8 +42,9 @@ const char* kTests[] = {"describe", "t test (unpaired)", "t test (paired)",
 const char* kNotes[] = {
     "Open several tables. Double-click a cell to edit it. Select rows and "
     "press Exclude to leave them out of every plot, fit and test.",
-    "Pick x and one or more y. The table beside the plot is editable; the "
-    "declaration is what gets drawn and can be edited by hand.",
+    "Pick x, and Ctrl-click for more than one y. The table beside the plot is "
+    "editable -- double-click a cell. The declaration is what gets drawn and "
+    "can be edited by hand: y=A1,B1 is the same as Ctrl-clicking both.",
     "Linear or nonlinear regression on the included points. Interpolate reads "
     "a value off the fitted curve.",
     "Tests run on the included rows of the selected table.",
@@ -54,6 +58,15 @@ void caption(const char* text) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(text);
     ImGui::SameLine();
+}
+
+// A quiet line of instruction. For the things a control can do that looking at
+// it will not tell you -- which is exactly the case that needs saying, and the
+// case most likely to go unwritten.
+void hint(const char* text) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
 }
 
 // A column picker. Reads the table when it draws, so it cannot show a column
@@ -195,6 +208,11 @@ void exclude_bar(App& app, Doc& d) {
         d.row_selected.clear();
         for (std::size_t r : hits) d.row_selected.insert(r);
     }
+    ImGui::SameLine();
+    hint(d.row_selected.empty()
+             ? "(Ctrl-click rows to select several)"
+             : ("(" + std::to_string(d.row_selected.size()) +
+                " row(s) selected)").c_str());
 }
 
 void draw_plot(Doc& d) {
@@ -217,7 +235,7 @@ void draw_plot(Doc& d) {
     for (std::size_t i = 0; i < d.series.size(); ++i) {
         const Series& s = d.series[i];
         if (s.xs.empty()) continue;
-        const ImVec4 col = kSeries[i % (sizeof kSeries / sizeof *kSeries)];
+        const ImVec4 col = series_col(i, d.series.size());
         const int n = static_cast<int>(s.xs.size());
         // THE POINT OF THE PORT. s.xs.data() is the vector that was filled
         // when the series was built; ImPlot walks it directly. No per-point
@@ -280,7 +298,9 @@ void section_plot(App& app, Doc& d) {
                          ImGuiInputTextFlags_EnterReturnsTrue))
         dirty = true;
 
-    // y is multi-select, so it is a list rather than a combo.
+    // y is multi-select, so it is a list rather than a combo. Nothing about a
+    // list of names says that though, so it is written down: a modifier you
+    // have to already know about is a feature that does not exist.
     caption("y axis");
     if (ImGui::BeginChild("##ylist", ImVec2(240, 84), ImGuiChildFlags_Border)) {
         for (std::size_t i = 0; i < d.table.ncols(); ++i) {
@@ -302,6 +322,9 @@ void section_plot(App& app, Doc& d) {
     dirty |= ImGui::Checkbox("log y", &d.logy);
     ImGui::Checkbox("draw fitted curve", &d.draw_fit);
     ImGui::EndGroup();
+    hint("Ctrl-click in the y list to plot several columns against the same x. "
+         "Each becomes its own series; colour= is ignored then, because the "
+         "series already ARE the columns.");
 
     if (dirty) {
         app.sync_spec_from_pickers();

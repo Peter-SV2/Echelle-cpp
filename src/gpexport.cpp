@@ -3,13 +3,19 @@
 #include <cstdio>
 #include <string>
 
+#include "palette.hpp"
+
 namespace ech {
 namespace {
 
-// The palette the app draws with, so an exported figure and the one on screen
-// are the same figure.
-constexpr const char* kSeriesColours[] = {"#186a53", "#3f6d8c", "#a83246",
-                                          "#9a6413", "#6d6d6d"};
+// The SAME ramp the app draws with, from palette.hpp. Two colour tables would
+// mean an exported figure that is a different figure.
+std::string series_hex(std::size_t i, std::size_t n) {
+    const Rgb c = series_colour(i, n);
+    char b[16];
+    std::snprintf(b, sizeof b, "#%02x%02x%02x", c.r, c.g, c.b);
+    return b;
+}
 constexpr const char* kInk = "#1a1a1a";
 constexpr const char* kDim = "#6d6d6d";
 constexpr const char* kLine = "#d7d7d7";
@@ -129,8 +135,7 @@ ExportResult write_gnuplot(const std::string& out_stem, const Table& t,
         r.written.push_back(dir + dat);
         if (i) plot += ", \\\n     ";
         plot += "'" + dat + "' using 1:2 " + kind_style(s.kind) + " lc rgb '" +
-                kSeriesColours[i % (sizeof kSeriesColours / sizeof *kSeriesColours)] +
-                "' title '" + ser.label + "'";
+                series_hex(i, series.size()) + "' title '" + ser.label + "'";
     }
 
     if (fit && fit->ok) {

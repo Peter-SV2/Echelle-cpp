@@ -18,6 +18,7 @@
 #include "fitstat.hpp"
 #include "gpexport.hpp"
 #include "num.hpp"
+#include "palette.hpp"
 #include "spec.hpp"
 #include "table.hpp"
 #include "ui.hpp"
@@ -444,6 +445,41 @@ void check_export() {
           "a fit over the points is two things to tell apart, so a key is drawn");
 }
 
+// --- the palette -----------------------------------------------------------
+
+void check_palette() {
+    // THE BUG THIS REPLACES. Five fixed colours and a modulo meant series 6
+    // was drawn in series 1's colour -- two different measurements rendered
+    // identically, in the one part of a figure whose job is telling them
+    // apart. Sampling a ramp by the series COUNT cannot do that.
+    for (std::size_t n = 1; n <= kMaxGroups; ++n) {
+        for (std::size_t i = 0; i < n; ++i) {
+            for (std::size_t j = i + 1; j < n; ++j) {
+                const Rgb a = series_colour(i, n), b = series_colour(j, n);
+                const int d = std::abs(a.r - b.r) + std::abs(a.g - b.g) +
+                              std::abs(a.b - b.b);
+                // Not merely unequal -- separated enough to read apart at the
+                // size a scatter marker actually is.
+                check(d >= 24, "series " + std::to_string(i) + " and " +
+                                   std::to_string(j) + " of " +
+                                   std::to_string(n) + " differ by " +
+                                   std::to_string(d));
+            }
+        }
+    }
+    // Every colour stays clear of the ink the fitted curve is drawn in, or the
+    // model would read as another measurement.
+    for (std::size_t n = 1; n <= kMaxGroups; ++n)
+        for (std::size_t i = 0; i < n; ++i) {
+            const Rgb c = series_colour(i, n);
+            check(c.r + c.g + c.b > 3 * 0x1a + 60,
+                  "a series colour must not look like the fit's ink");
+        }
+    // A lone series is the confident mid-purple, not an end of the gradient.
+    const Rgb one = series_colour(0, 1);
+    check(one.r > 0x60 && one.b > 0xc0, "a single series is mid-purple");
+}
+
 // --- the app's own operations ---------------------------------------------
 //
 // ui_state.cpp is deliberately free of ImGui so it can be driven here. These
@@ -554,6 +590,7 @@ int main() {
     check_table();
     check_spec();
     check_export();
+    check_palette();
     check_app();
     if (failures) {
         std::printf("\n%d check(s) FAILED\n", failures);
