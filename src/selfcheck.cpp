@@ -20,6 +20,7 @@
 #include "num.hpp"
 #include "spec.hpp"
 #include "table.hpp"
+#include "ui.hpp"
 
 using namespace ech;
 
@@ -443,6 +444,104 @@ void check_export() {
           "a fit over the points is two things to tell apart, so a key is drawn");
 }
 
+// --- the app's own operations ---------------------------------------------
+//
+// ui_state.cpp is deliberately free of ImGui so it can be driven here. These
+// are the paths a click takes, with no window in the way.
+
+void check_app() {
+    auto d = tmpdir();
+    const auto p = d / "run.csv";
+    std::string body = "dose,response,batch\n";
+    for (int i = 0; i < 24; ++i)
+        body += std::to_string(i * 0.5) + "," +
+                std::to_string(3.0 * (i * 0.5) - 1.5) + ",day" +
+                std::to_string(i % 3) + "\n";
+    write(p, body);
+
+    App app;
+    check(app.open(p.string()), "the app opens a file");
+    Doc* doc = app.doc();
+    check(doc != nullptr, "and selects it");
+    // The first plot should be one click, not six.
+    check(doc->x == 0 && doc->ys.size() == 1 && doc->ys[0] == 1,
+          "the first two numeric columns are picked for you");
+    check(!doc->series.empty(), "and a series exists without touching anything");
+    check(app.spec_text_buf.find("x=dose") != std::string::npos,
+          "the declaration reflects the pickers: " + app.spec_text_buf);
+
+    // HAND EDITS WIN. The declaration is what gets drawn.
+    app.spec_text_buf = "kind=line x=dose y=response colour=batch";
+    check(app.apply_spec_text(), "a hand-edited declaration applies");
+    check(doc->colour == 2, "and pushes back into the pickers");
+    check(doc->series.size() == 3, "colour=batch made three series");
+    check(doc->series[0].xs[0] <= doc->series[0].xs[1], "kind=line sorted by x");
+
+    // A bad declaration is reported, and must not half-apply.
+    app.spec_text_buf = "kind=scatter x=dose y=response nosuch=1";
+    check(!app.apply_spec_text(), "an unknown key is refused");
+    check(doc->series.size() == 3, "and the previous plot still stands");
+
+    app.spec_text_buf = "kind=scatter x=dose y=response";
+    check(app.apply_spec_text(), "back to a good one");
+
+    doc->fit_model = Model::Linear;
+    app.run_fit();
+    check(doc->has_fit, "the fit runs");
+    near(doc->fit.slope, 3.0, 1e-9, "and recovers the slope");
+    check(app.fit_report.find("R squared") != std::string::npos,
+          "the report names what it reports");
+
+    // Interpolation inside the range is interpolation; outside it is not, and
+    // must say so -- an extrapolation looks exactly like an interpolation.
+    app.interp_buf = "5";
+    app.run_interp();
+    check(app.fit_report.find("EXTRAPOLATED") == std::string::npos,
+          "x=5 is inside the fitted range");
+    app.interp_buf = "500";
+    app.run_interp();
+    check(app.fit_report.find("EXTRAPOLATED") != std::string::npos,
+          "x=500 is not, and is labelled");
+
+    // Excluding a row must reach the fit AND be reported.
+    doc->table.set_excluded(0, true);
+    app.run_fit();
+    check(app.fit_report.find("1 row(s) excluded") != std::string::npos,
+          "the fit reports what was left out");
+    doc->table.set_excluded(0, false);
+
+    // Outliers are SUGGESTED, never applied.
+    doc->table.set_cell(3, 1, "9999");
+    std::vector<std::size_t> hits;
+    app.suggest_outliers(hits);
+    check(!hits.empty(), "the planted outlier is suggested");
+    check(doc->table.n_excluded() == 0,
+          "suggesting must not exclude anything by itself");
+
+    // An edited cell reaches the next fit.
+    app.run_fit();
+    check(doc->fit.ok && std::fabs(doc->fit.slope - 3.0) > 1e-6,
+          "the edit moved the fit, so the edit reached the analysis");
+
+    doc->test_kind = 5;   // Pearson
+    doc->test_a = 0;
+    doc->test_b = 1;
+    app.run_test();
+    check(app.test_report.find("r") != std::string::npos, "a test reports");
+
+    doc->test_kind = 4;   // ANOVA, grouped
+    doc->test_by = 2;
+    app.run_test();
+    check(app.test_report.find("F") != std::string::npos,
+          "ANOVA groups by a column: " + app.test_report.substr(0, 40));
+
+    check(app.export_figure((d / "fig").string()), "export from the app");
+    check(std::filesystem::exists(d / "fig.gp"), "and the script lands");
+
+    app.close_current();
+    check(app.doc() == nullptr, "closing the last table leaves none");
+}
+
 }  // namespace
 
 int main() {
@@ -455,6 +554,7 @@ int main() {
     check_table();
     check_spec();
     check_export();
+    check_app();
     if (failures) {
         std::printf("\n%d check(s) FAILED\n", failures);
         return 1;

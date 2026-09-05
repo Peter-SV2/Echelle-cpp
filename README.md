@@ -41,6 +41,28 @@ The core is headless and builds anywhere:
 
 ## Status
 
-The core is complete and verified. The ImGui/ImPlot GUI is not yet written,
-and this machine has no Windows C++ toolchain to build it with -- see the
-commit message and the top-level notes.
+Everything is written. 151 assertions pass, covering the numerics, the table,
+the declaration, the export and the app's own operations -- `ui_state.cpp` is
+free of ImGui precisely so a test can drive a fit, an edit, an exclusion and
+an export with no window in the way.
+
+`src/ui.cpp` compiles clean against ImGui 1.91.5 and ImPlot 0.16, so the
+drawing API usage is checked too.
+
+`src/main.cpp` -- the Win32 + D3D11 host loop -- is the one file that has NOT
+been compiled. It needs a Windows C++ toolchain, and this machine has none:
+no MSVC, no MinGW, no CMake. Everything else was built and run under WSL.
+
+To finish it you need one of:
+
+    winget install Microsoft.VisualStudio.2022.BuildTools Kitware.CMake
+    winget install MSYS2.MSYS2 Kitware.CMake
+
+then:
+
+    cmake -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --config Release --target check   # the 151 assertions
+    cmake --build build --config Release                  # Echelle.exe
+
+Expect main.cpp to need a small fix or two on that first compile. Nothing else
+should.
