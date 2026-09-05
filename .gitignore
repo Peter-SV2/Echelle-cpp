@@ -2,3 +2,4 @@ third_party/
 build/
 build-win/
 sample.csv
+build-release/
