@@ -46,6 +46,16 @@ const char* kNotes[] = {
     "Tests run on the included rows of the selected table.",
 };
 
+// A caption BEFORE its control. ImGui puts a widget's label on the right, so
+// the natural spelling reads "scatter [v] kind  time [v] x axis" -- every
+// caption sitting against the control after it rather than its own. The label
+// is hidden with ## and drawn ahead instead.
+void caption(const char* text) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(text);
+    ImGui::SameLine();
+}
+
 // A column picker. Reads the table when it draws, so it cannot show a column
 // the table does not have.
 bool column_combo(const char* label, const Table& t, int& sel, bool numeric_only,
@@ -54,8 +64,11 @@ bool column_combo(const char* label, const Table& t, int& sel, bool numeric_only
                               ? t.cols()[static_cast<std::size_t>(sel)].name.c_str()
                               : "(none)";
     bool changed = false;
+    caption(label);
+    char id[64];
+    std::snprintf(id, sizeof id, "##%s", label);
     ImGui::SetNextItemWidth(150);
-    if (ImGui::BeginCombo(label, preview)) {
+    if (ImGui::BeginCombo(id, preview)) {
         if (allow_none && ImGui::Selectable("(none)", sel < 0)) {
             sel = -1;
             changed = true;
@@ -250,8 +263,9 @@ void section_plot(App& app, Doc& d) {
     bool dirty = false;
     const char* kinds[] = {"scatter", "line", "hist", "bars"};
     int ki = static_cast<int>(d.spec.kind);
+    caption("kind");
     ImGui::SetNextItemWidth(110);
-    if (ImGui::Combo("kind", &ki, kinds, 4)) {
+    if (ImGui::Combo("##kind", &ki, kinds, 4)) {
         d.spec.kind = static_cast<Kind>(ki);
         dirty = true;
     }
@@ -260,14 +274,14 @@ void section_plot(App& app, Doc& d) {
     ImGui::SameLine();
     dirty |= column_combo("colour by", d.table, d.colour, false, true);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(180);
-    if (ImGui::InputText("where", &d.where,
+    caption("where");
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::InputText("##where", &d.where,
                          ImGuiInputTextFlags_EnterReturnsTrue))
         dirty = true;
 
     // y is multi-select, so it is a list rather than a combo.
-    ImGui::TextUnformatted("y axis");
-    ImGui::SameLine();
+    caption("y axis");
     if (ImGui::BeginChild("##ylist", ImVec2(240, 84), ImGuiChildFlags_Border)) {
         for (std::size_t i = 0; i < d.table.ncols(); ++i) {
             if (!d.table.cols()[i].numeric) continue;
@@ -294,8 +308,9 @@ void section_plot(App& app, Doc& d) {
         app.refresh_series();
     }
 
+    caption("declaration");
     ImGui::SetNextItemWidth(-260);
-    const bool entered = ImGui::InputText("declaration", &app.spec_text_buf,
+    const bool entered = ImGui::InputText("##declaration", &app.spec_text_buf,
                                           ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
     if (ImGui::Button("Plot") || entered) app.apply_spec_text();
@@ -325,8 +340,9 @@ void section_fit(App& app, Doc& d) {
         if (ms[i].id == d.fit_model) mi = static_cast<int>(i);
     std::vector<const char*> names;
     for (const auto& m : ms) names.push_back(m.name);
+    caption("model");
     ImGui::SetNextItemWidth(170);
-    if (ImGui::Combo("model", &mi, names.data(), static_cast<int>(names.size())))
+    if (ImGui::Combo("##model", &mi, names.data(), static_cast<int>(names.size())))
         d.fit_model = ms[static_cast<std::size_t>(mi)].id;
     ImGui::SameLine();
     column_combo("fit x", d.table, d.fit_x, true);
@@ -335,8 +351,9 @@ void section_fit(App& app, Doc& d) {
     ImGui::SameLine();
     if (ImGui::Button("Fit")) app.run_fit();
 
+    caption("interpolate at x =");
     ImGui::SetNextItemWidth(120);
-    ImGui::InputText("interpolate at x =", &app.interp_buf);
+    ImGui::InputText("##interp", &app.interp_buf);
     ImGui::SameLine();
     if (ImGui::Button("Interpolate")) app.run_interp();
     ImGui::Separator();
@@ -346,8 +363,9 @@ void section_fit(App& app, Doc& d) {
 }
 
 void section_stats(App& app, Doc& d) {
+    caption("test");
     ImGui::SetNextItemWidth(180);
-    ImGui::Combo("test", &d.test_kind, kTests,
+    ImGui::Combo("##test", &d.test_kind, kTests,
                  static_cast<int>(sizeof kTests / sizeof *kTests));
     ImGui::SameLine();
     column_combo("a", d.table, d.test_a, true);

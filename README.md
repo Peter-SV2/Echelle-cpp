@@ -17,6 +17,19 @@ canvas holding one object per point accounted for 1.7 s of a 1.76 s redraw.
 ImPlot is handed a pointer to the `std::vector<double>` that already exists and
 draws from it in immediate mode, so a redraw has no per-point cost at all.
 
+## It is actually standalone now
+
+The Python shipped as an exe that drew by spawning gnuplot, and on the machine
+it was built on gnuplot only existed inside WSL. So a "standalone" build was
+quietly driving a virtual machine to render a scatter plot -- portable right up
+until it met a laptop without WSL. `gp.backend()` said so on the rail, which
+was honest, but it was still the shape of the thing.
+
+This draws its own figures. It spawns nothing, at any point, for any reason.
+gnuplot is not required to run it and is not bundled with it; the `.gp` script
+written on Save is a record for a reader to rerun if they want to, not
+something the app depends on. There is no 167 MB folder to copy beside the exe.
+
 ## What it is
 
 - `src/num.hpp` — field parsing. `from_chars`, not `stod`: no allocation, no

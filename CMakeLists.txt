@@ -32,6 +32,15 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion)
 endif()
 
+if(MINGW)
+  # Static for EVERY target, not just the app. Linked dynamically, a binary
+  # needs libstdc++-6.dll and libgcc_s_seh-1.dll beside it or it dies at load
+  # with 0xC0000139 -- entry point not found -- which names no DLL and reads
+  # like a corrupt executable. selfcheck.exe did exactly that, and a test that
+  # cannot run outside the build tree is a test that stops being run.
+  add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
 # --- the core: no window, no GPU, no platform ---------------------------------
 add_library(echelle_core STATIC
   src/table.cpp src/fitstat.cpp src/spec.cpp src/gpexport.cpp src/ui_state.cpp)
@@ -85,4 +94,15 @@ if(WIN32)
                  ${CMAKE_CURRENT_SOURCE_DIR}/echelle.rc)
   target_link_libraries(Echelle PRIVATE echelle_core imgui d3d11 dxgi d3dcompiler)
   set_target_properties(Echelle PROPERTIES OUTPUT_NAME "Echelle")
+
+  if(MINGW)
+    # wWinMain, not WinMain. MinGW's startup calls the ANSI entry point unless
+    # -municode is given, so a wide wWinMain simply is not found and the link
+    # fails on a missing WinMain -- which reads as a missing function rather
+    # than as the wrong entry point it actually is.
+    target_link_options(Echelle PRIVATE -municode)
+    # d3dcompiler is not needed by the DX11 backend unless shaders are compiled
+    # at runtime, and MinGW's import library for it is inconsistently named.
+    target_link_libraries(Echelle PRIVATE uuid ole32 oleaut32 imm32 dwmapi)
+  endif()
 endif()
