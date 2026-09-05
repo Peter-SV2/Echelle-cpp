@@ -54,28 +54,24 @@ The core is headless and builds anywhere:
 
 ## Status
 
-Everything is written. 151 assertions pass, covering the numerics, the table,
-the declaration, the export and the app's own operations -- `ui_state.cpp` is
-free of ImGui precisely so a test can drive a fit, an edit, an exclusion and
-an export with no window in the way.
+It builds and runs on Windows. `Echelle.exe` is 5.1 MB, statically linked, and
+imports only system DLLs -- nothing to copy beside it.
 
-`src/ui.cpp` compiles clean against ImGui 1.91.5 and ImPlot 0.16, so the
-drawing API usage is checked too.
+The self-check is 151 assertions over the numerics, the table, the
+declaration, the export, the palette and the app's own operations.
+`ui_state.cpp` is free of ImGui precisely so a test can drive a fit, an edit,
+an exclusion and an export with no window in the way; the check links no
+graphics library and needs no GPU, so it runs in CI and under WSL as well.
 
-`src/main.cpp` -- the Win32 + D3D11 host loop -- is the one file that has NOT
-been compiled. It needs a Windows C++ toolchain, and this machine has none:
-no MSVC, no MinGW, no CMake. Everything else was built and run under WSL.
-
-To finish it you need one of:
-
-    winget install Microsoft.VisualStudio.2022.BuildTools Kitware.CMake
-    winget install MSYS2.MSYS2 Kitware.CMake
-
-then:
-
+    winget install MSYS2.MSYS2 Kitware.CMake     # or the VS 2022 build tools
     cmake -B build -DCMAKE_BUILD_TYPE=Release
-    cmake --build build --config Release --target check   # the 151 assertions
-    cmake --build build --config Release                  # Echelle.exe
+    cmake --build build --target check           # the assertions
+    cmake --build build                          # Echelle.exe
 
-Expect main.cpp to need a small fix or two on that first compile. Nothing else
-should.
+If a build fails on `collect2: ld returned 1`, the exe is still running and
+holding its own file. Close it.
+
+---
+
+The Python original, which this was measured against, is at
+<https://github.com/Peter-SV2/Echelle>. It is not a dependency of this one.
