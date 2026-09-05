@@ -56,6 +56,17 @@ bool App::open(const std::string& path) {
     }
 }
 
+void toggle_y(Doc& d, int col, bool additive) {
+    if (col < 0 || col >= static_cast<int>(d.table.ncols())) return;
+    const auto it = std::find(d.ys.begin(), d.ys.end(), col);
+    if (!additive) {
+        d.ys.assign(1, col);
+        return;
+    }
+    if (it != d.ys.end()) d.ys.erase(it);
+    else d.ys.push_back(col);
+}
+
 void App::close_current() {
     if (cur < 0) return;
     docs.erase(docs.begin() + cur);
@@ -137,6 +148,13 @@ void App::run_fit() {
     Doc* d = doc();
     fit_report.clear();
     if (!d) { status = "open a table first"; return; }
+    // has_fit MUST mean "d->fit holds a real fit". These returns used to leave
+    // it alone, so a restored session that said has_fit=1 and then bailed here
+    // -- because the saved fit columns no longer resolve -- kept the flag over
+    // a default-constructed Fit with no parameters in it. Interpolate reads
+    // fit.values[0] on the strength of that flag, off the end of an empty
+    // vector.
+    d->has_fit = false;
     if (d->fit_x < 0 || d->fit_y < 0) { status = "pick x and y to fit"; return; }
     std::vector<double> xs, ys;
     d->table.series(d->fit_x, d->fit_y, xs, ys);
@@ -185,7 +203,9 @@ void App::run_fit() {
 
 void App::run_interp() {
     Doc* d = doc();
-    if (!d || !d->has_fit) { status = "run a fit first"; return; }
+    // fit.ok as well as has_fit: they are kept in step now, and the belt is
+    // one line against the reader of fit.values below.
+    if (!d || !d->has_fit || !d->fit.ok) { status = "run a fit first"; return; }
     const double x = to_num(interp_buf);
     if (!is_num(x)) { status = "interpolate needs a number"; return; }
     const double y = predict(d->fit, x);
@@ -225,6 +245,10 @@ void App::run_test() {
         case 3: r = one_sample_t(A, 0.0); break;
         case 4: {   // one-way ANOVA, grouped by a column
             if (d->test_by < 0) { r.error = "pick a column to group by"; break; }
+            // `a` was read straight through as an index. It is -1 whenever the
+            // table has no numeric column for the picker to have defaulted to,
+            // and cols()[(size_t)-1] is not a bounds error that reports itself.
+            if (d->test_a < 0) { r.error = "pick a column to test"; break; }
             const auto& g = d->table.groups(d->test_by);
             const auto& V = d->table.cols()[static_cast<std::size_t>(d->test_a)].num;
             std::vector<std::vector<double>> buckets;

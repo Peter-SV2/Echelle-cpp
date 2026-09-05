@@ -221,9 +221,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdline, int) {
     g_app = &app;
     // Anything on the command line is a file to open, so `Echelle data.csv`
     // and dragging a CSV onto the exe both work.
-    {
+    //
+    // THE EMPTY CHECK IS NOT DEFENSIVE PADDING. wWinMain's cmdline excludes the
+    // program name, so a plain double-click hands us "" -- and
+    // CommandLineToArgvW("") does not return zero arguments, it returns ONE:
+    // the path of the running executable. Echelle therefore opened itself,
+    // parsed 5 MB of machine code as a CSV, and greeted every new user with a
+    // table whose first column read "This program cannot be run in DOS mode."
+    if (cmdline && *cmdline) {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(cmdline, &argc);
+        if (!argv) argc = 0;
         for (int i = 0; i < argc; ++i) {
             const int len = WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, nullptr,
                                                 0, nullptr, nullptr);

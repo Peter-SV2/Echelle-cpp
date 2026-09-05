@@ -54,6 +54,18 @@ struct Doc {
     explicit Doc(Table&& t) : table(std::move(t)) {}
 };
 
+// Add, remove or replace one y column in a doc's selection.
+//
+// It lives here rather than inside the y-list widget because it is state, not
+// drawing -- and because the version that lived in the widget cleared the
+// vector and then erased an iterator found in the emptied one, which is
+// undefined behaviour and crashed the program. A rule with two branches
+// deserves a test, and nothing in a draw call can have one.
+//
+// `additive` is Ctrl held: toggle this column in the selection. Without it the
+// selection becomes exactly this column.
+void toggle_y(Doc& d, int col, bool additive);
+
 enum class Section { Data, Plot, Fit, Stats };
 
 struct App {

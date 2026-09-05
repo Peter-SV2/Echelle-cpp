@@ -36,6 +36,16 @@ ImVec4 series_col(std::size_t i, std::size_t n) {
 int g_edit_row = -1, g_edit_col = -1;
 std::string g_edit_buf;
 
+// An edit belongs to the table it was started on. The position is a plain
+// (row, column) pair with no table attached, so switching tables with a cell
+// open left the box on screen over the SAME cell of the new table, and Enter
+// wrote the old value into it. Every path that changes which table is shown
+// cancels the edit instead.
+void cancel_edit() {
+    g_edit_row = g_edit_col = -1;
+    g_edit_buf.clear();
+}
+
 const char* kTests[] = {"describe", "t test (unpaired)", "t test (paired)",
                         "one-sample t", "one-way ANOVA", "Pearson r",
                         "Spearman rho", "Mann-Whitney U"};
@@ -311,9 +321,18 @@ void section_plot(App& app, Doc& d) {
             const int ci = static_cast<int>(i);
             const bool on = std::find(d.ys.begin(), d.ys.end(), ci) != d.ys.end();
             if (ImGui::Selectable(d.table.cols()[i].name.c_str(), on)) {
-                if (!ImGui::GetIO().KeyCtrl) d.ys.clear();
-                if (on) d.ys.erase(std::find(d.ys.begin(), d.ys.end(), ci));
-                else d.ys.push_back(ci);
+                // THE CRASH. This used to clear() first and then erase() the
+                // iterator from a find() run on the emptied vector -- which is
+                // end(), and erasing end() is undefined behaviour, not a
+                // no-op. Clicking an already-selected y without Ctrl did it,
+                // and since opening a file preselects the second numeric
+                // column, that was the first thing anyone would click.
+                //
+                // The two cases are genuinely different and are now written
+                // that way rather than as one clear plus one toggle: Ctrl
+                // toggles this entry, a plain click makes the selection
+                // exactly this entry.
+                toggle_y(d, ci, ImGui::GetIO().KeyCtrl);
                 dirty = true;
             }
         }
@@ -449,17 +468,25 @@ bool draw(App& app) {
             ImGui::PushID(i);
             if (ImGui::Selectable(app.docs[static_cast<std::size_t>(i)]
                                       ->table.name().c_str(),
-                                  app.cur == i))
+                                  app.cur == i)) {
+                cancel_edit();
                 app.select(i);
+            }
             ImGui::PopID();
         }
         ImGui::Spacing();
         if (ImGui::Button("Open table...")) {
             const std::string p = ask_path(Ask::OpenTable);
-            if (!p.empty()) app.open(p);
+            if (!p.empty()) {
+                cancel_edit();
+                app.open(p);
+            }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Close")) app.close_current();
+        if (ImGui::Button("Close")) {
+            cancel_edit();
+            app.close_current();
+        }
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -499,6 +526,7 @@ bool draw(App& app) {
             const std::string p = ask_path(Ask::OpenSession);
             if (!p.empty()) {
                 std::string err;
+                cancel_edit();
                 if (load_session(app, p, err)) app.session_path = p;
                 else app.status = err;
             }
@@ -516,8 +544,8 @@ bool draw(App& app) {
         Doc* d = app.doc();
         if (!d) {
             ImGui::TextUnformatted(
-                "No table open. Pass a .csv on the command line, or drop one "
-                "on the window.");
+                "No table open. Press Open table, drop a .csv on the window, "
+                "or pass one on the command line.");
         } else {
             switch (app.section) {
                 case Section::Data:  section_data(app, *d); break;

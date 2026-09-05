@@ -119,6 +119,27 @@ Table Table::from_text(std::string text, std::string path, std::string name,
     t.buf_ = std::move(text);
     if (t.buf_.empty()) throw std::runtime_error("empty table: " + t.name_);
 
+    // Cell text is addressed by a 32-bit offset into this buffer, so past 4 GB
+    // the offsets wrap and every cell silently points at the wrong bytes. A
+    // refusal is the only honest outcome; quietly reading the first 4 GB would
+    // be worse than not opening it.
+    if (t.buf_.size() > 0xFFFFFFFFull)
+        throw std::runtime_error(t.name_ + " is over 4 GB, which is more than "
+                                           "this can address");
+
+    // REFUSE A FILE THAT IS NOT TEXT. Dropping an .exe, a .pdf or a .xlsx on
+    // the window used to parse it as a delimited table: a few thousand junk
+    // columns, tens of megabytes of slices, and a grid full of mojibake, with
+    // nothing anywhere saying the file was the wrong kind. A NUL byte does not
+    // occur in a delimited text file and does occur almost immediately in
+    // every binary format, so it is the cheap and reliable tell.
+    const std::size_t look = std::min<std::size_t>(t.buf_.size(), 4096);
+    if (std::string_view(t.buf_).substr(0, look).find('\0') !=
+        std::string_view::npos)
+        throw std::runtime_error(t.name_ +
+                                 " is not a text file: it holds bytes no CSV, "
+                                 "TSV or tab-delimited export contains");
+
     // Drop a leading UTF-8 byte order mark. Excel writes one on every CSV it
     // exports, and so does PowerShell's -Encoding utf8, so this is the common
     // case rather than an exotic one. Left in place it becomes part of the

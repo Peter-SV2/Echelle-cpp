@@ -707,6 +707,101 @@ void check_session() {
     check(checksum("") == checksum(""), "and is stable");
 }
 
+
+// --- the crashes -----------------------------------------------------------
+// Everything here is a path that ended the process rather than reporting
+// something. They are grouped because they share one shape: an index or a flag
+// that was trusted without being in range.
+
+void check_crashes() {
+    auto d = tmpdir();
+    const auto p = d / "c.csv";
+    write(p, "dose,response,extra,batch\n"
+             "1,2,3,x\n2,4,6,y\n3,6,9,x\n4,8,12,y\n5,11,15,x\n6,13,18,y\n");
+
+    App app;
+    check(app.open(p.string()), "open a table");
+    Doc* doc = app.doc();
+
+    // THE REPORTED CRASH. Clicking an already-selected y column without Ctrl
+    // used to clear the vector and then erase an iterator found in the emptied
+    // one -- end() -- which is undefined behaviour and took the process with
+    // it. Opening a file preselects the second numeric column, so this was the
+    // first thing a click would land on.
+    check(doc->ys.size() == 1 && doc->ys[0] == 1, "y starts on one column");
+    toggle_y(*doc, 1, false);
+    check(doc->ys.size() == 1 && doc->ys[0] == 1,
+          "clicking the selected y again leaves it selected, and does not "
+          "erase end()");
+    toggle_y(*doc, 2, false);
+    check(doc->ys.size() == 1 && doc->ys[0] == 2,
+          "a plain click replaces the selection");
+    toggle_y(*doc, 1, true);
+    check(doc->ys.size() == 2, "Ctrl-click adds");
+    toggle_y(*doc, 1, true);
+    check(doc->ys.size() == 1 && doc->ys[0] == 2, "and Ctrl-click again removes");
+    toggle_y(*doc, 2, true);
+    check(doc->ys.empty(), "removing the last one is allowed, not a crash");
+    toggle_y(*doc, 99, false);
+    toggle_y(*doc, -1, true);
+    check(doc->ys.empty(), "a column that is not there is ignored");
+    toggle_y(*doc, 1, false);
+
+    // ANOVA read `a` straight through as an index without checking it.
+    doc->test_kind = 4;
+    doc->test_a = -1;
+    doc->test_by = 3;
+    app.run_test();
+    check(app.test_report.find("cannot run") != std::string::npos,
+          "ANOVA with no column to test says so instead of indexing -1");
+    doc->test_a = 1;
+    app.run_test();
+    check(app.test_report.find("F") != std::string::npos, "and still works");
+
+    // has_fit must mean fit holds a fit. It used to survive an early return.
+    doc->fit_x = 0;
+    doc->fit_y = 1;
+    app.run_fit();
+    check(doc->has_fit, "a fit runs");
+    doc->fit_y = -1;
+    app.run_fit();
+    check(!doc->has_fit, "and a refused fit clears the flag it set");
+    app.interp_buf = "2";
+    app.run_interp();
+    check(app.fit_report.find("interpolated") == std::string::npos,
+          "so interpolate refuses rather than reading an empty parameter list");
+
+    // bins= is a number typed by a person. Casting a NaN or a 1e30 to int is
+    // undefined; a huge accepted value reaches a resize of many gigabytes.
+    Spec sp;
+    std::string err;
+    check(parse_spec("x=dose bins=abc", sp, err) && sp.bins == 30,
+          "bins=abc falls back rather than casting NaN to int");
+    check(parse_spec("x=dose bins=1e30", sp, err) && sp.bins <= 5000,
+          "an absurd bins is clamped, not allocated");
+    check(parse_spec("x=dose bins=-4", sp, err) && sp.bins == 2,
+          "and a negative one is floored");
+    check(parse_spec("x=dose bins=64", sp, err) && sp.bins == 64,
+          "a sensible one is left alone");
+
+    // A file that is not text used to be parsed as one: thousands of junk
+    // columns and megabytes of slices, with nothing saying the file was the
+    // wrong kind.
+    const auto bin = d / "thing.bin";
+    write(bin, std::string("MZ", 2) + std::string(1, '\0') + "binary\ngarbage\n");
+    bool threw = false;
+    try {
+        Table::load(bin.string());
+    } catch (const std::exception& e) {
+        threw = std::string(e.what()).find("not a text file") != std::string::npos;
+    }
+    check(threw, "a binary file is refused, by name");
+    App a2;
+    check(!a2.open(bin.string()), "and the app reports it rather than opening it");
+    check(a2.status.find("not a text file") != std::string::npos,
+          "saying what is wrong: " + a2.status);
+}
+
 }  // namespace
 
 int main() {
@@ -722,6 +817,7 @@ int main() {
     check_palette();
     check_app();
     check_session();
+    check_crashes();
     if (failures) {
         std::printf("\n%d check(s) FAILED\n", failures);
         return 1;

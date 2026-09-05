@@ -16,6 +16,17 @@ constexpr std::string_view kKeys[] = {"kind", "x", "y", "split", "colour", "colo
 // Longest first, so `<=` is not read as `<` followed by a stray `=`.
 constexpr std::string_view kOps[] = {"<=", ">=", "!=", "==", "~", "<", ">"};
 
+// A count typed by a person, made safe to use as one. Casting a double to int
+// is undefined unless the value is already in range, so NaN and 1e30 have to
+// be caught BEFORE the cast rather than clamped after it.
+int to_int(std::string_view s, int fallback, int lo, int hi) {
+    const double d = to_num(s);
+    if (!is_num(d)) return fallback;
+    if (d <= static_cast<double>(lo)) return lo;
+    if (d >= static_cast<double>(hi)) return hi;
+    return static_cast<int>(d);
+}
+
 std::string lower(std::string_view s) {
     std::string o(s);
     for (char& c : o) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
@@ -74,8 +85,12 @@ bool parse_spec(std::string_view text, Spec& out, std::string& err) {
         } else if (k == "split" || k == "colour" || k == "color") out.split = v;
         else if (k == "where") out.where = v;
         else if (k == "title") out.title = v;
-        else if (k == "bins") out.bins = std::max(2, static_cast<int>(to_num(v)));
-        else if (k == "limit") out.limit = static_cast<int>(to_num(v));
+        // Both go through to_int rather than a bare cast. `bins=abc` parses to
+        // NaN and casting NaN to int is undefined behaviour, not a zero; and
+        // an accepted `bins=2000000000` reaches a resize() of sixteen
+        // gigabytes, which throws out of the middle of a frame.
+        else if (k == "bins") out.bins = to_int(v, 30, 2, 5000);
+        else if (k == "limit") out.limit = to_int(v, 0, 0, 100000000);
         else if (k == "logx") out.logx = (v != "0" && !v.empty());
         else if (k == "logy") out.logy = (v != "0" && !v.empty());
     }
